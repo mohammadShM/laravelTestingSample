@@ -14,6 +14,8 @@ class PostControllerTest extends TestCase
 
     use WithFaker, RefreshDatabase;
 
+    private array $middleware = ['web', 'auth:web', 'admin',];
+
     public function testIndexMethod(): void
     {
         // $this->withoutExceptionHandling();
@@ -23,7 +25,7 @@ class PostControllerTest extends TestCase
             ->assertOk()
             ->assertViewIs('admin.posts.index')
             ->assertViewHas('posts', Post::query()->latest()->paginate(15));
-        $this->assertEquals(['web', 'auth:web', 'admin'], request()->route()->middleware());
+        $this->assertEquals($this->middleware, request()->route()->middleware());
     }
 
     public function testCreateMethod(): void
@@ -35,7 +37,7 @@ class PostControllerTest extends TestCase
             ->assertOk()
             ->assertViewIs('admin.posts.create')
             ->assertViewHas('tags', Tag::query()->latest()->get());
-        $this->assertEquals(['web', 'auth:web', 'admin'], request()->route()->middleware());
+        $this->assertEquals($this->middleware, request()->route()->middleware());
     }
 
     public function testEditMethod(): void
@@ -51,7 +53,54 @@ class PostControllerTest extends TestCase
                 'tags' => Tag::query()->latest()->get(),
                 'post' => $post,
             ]);
-        $this->assertEquals(['web', 'auth:web', 'admin'], request()->route()->middleware());
+        $this->assertEquals($this->middleware, request()->route()->middleware());
+    }
+
+    public function testStoreMethod(): void
+    {
+        $user = User::factory()->admin()->create();
+        $data = Post::factory()->state(['user_id' => $user->id])->make()->toArray();
+        /** @noinspection PhpUnhandledExceptionInspection */
+        $tags = Tag::factory()->count(random_int(1, 5))->create();
+        $this->actingAs($user)
+            ->post(route('post.store'),
+                array_merge(
+                    ['tags' => $tags->pluck('id')->toArray()],
+                    $data,
+                ))
+            ->assertSessionHas('message', 'new post has been created')
+            ->assertRedirect(route('post.index'));
+        $this->assertDatabaseHas("posts", $data);
+        $this->assertEquals(
+            $tags->pluck('id')->toArray(),
+            Post::query()->where($data)->first()->tags()->pluck('id')->toArray(),
+        );
+        $this->assertEquals($this->middleware, request()->route()->middleware());
+    }
+
+    public function testUpdateMethod(): void
+    {
+        $user = User::factory()->admin()->create();
+        $data = Post::factory()->state(['user_id' => $user->id])->make()->toArray();
+        /** @noinspection PhpUnhandledExceptionInspection */
+        /** @noinspection PhpUndefinedMethodInspection */
+        $post = Post::factory()->state(['user_id' => $user->id])->hasTags(random_int(1, 5))->create();
+        /** @noinspection PhpUnhandledExceptionInspection */
+        $tags = Tag::factory()->count(random_int(1, 5))->create();
+        $this->actingAs($user)
+            ->patch(route('post.update', $post->id),
+                array_merge(
+                    ['tags' => $tags->pluck('id')->toArray()],
+                    $data,
+                ))
+            ->assertSessionHas('message', 'the post has been updated')
+            ->assertRedirect(route('post.index'));
+        $this->assertDatabaseHas("posts", array_merge(['id' => $post->id], $data));
+        $this->assertEquals(
+            $tags->pluck('id')->toArray(),
+            Post::query()->where($data)->first()->tags()->pluck('id')->toArray(),
+        );
+        $this->assertEquals($this->middleware, request()->route()->middleware());
     }
 
 }
